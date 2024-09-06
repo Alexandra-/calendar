@@ -1,0 +1,59 @@
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+  
+html {
+    display: flex;
+    min-height: 100%;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    width: 100%;
+    min-width: 380px;
+    min-height: 100%;
+    color: #43425D;
+    font-size: 15px;
+    line-height: 19px;
+    font-weight: 400;
+    font-family: "Source Sans 3", Arial, Helvetica, sans-serif;
+    background-color: #F0F0F7;
+}
+
+#app {
+    height: 100%;
+}
+
+.app {
+    display: flex;
+    width: 100%;
+    min-height: 100%;
+}
+
+a {
+    color: #4D4F5C;
+    text-decoration: none;
+}
+
+h1 {
+    margin-bottom: 26px;
+    font-weight: normal;
+    font-size: 28px;
+    line-height: 40px;
+}
+
+h2 {
+    margin-bottom: 14px;
+    font-weight: normal;
+    font-size: 18px;
+    line-height: 23px;
+}
