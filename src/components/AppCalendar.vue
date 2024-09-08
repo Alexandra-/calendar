@@ -11,23 +11,24 @@
             
         </FullCalendar>
         <div v-show="showModal" class="event-modal" :style="{ top: modalPosition.top + 'px', left: modalPosition.left + 'px' }">
-            <div>
-                <AppButton type="button" class="btn-close" @click="closeModal">
-                    <IconClose />
+            <AppButton v-if="editMode" type="button" class="btn-delete" @click="deleteEvent">
+                <IconTrash />
+            </AppButton>
+            <AppButton type="button" class="btn-close" @click="closeModal">
+                <IconClose />
+            </AppButton>
+            <input type="text" class="form-control" placeholder="event name" maxlength="30" v-model.trim="newEvent.title">
+            <input type="date" class="form-control" placeholder="Event date" v-model="newEvent.date">
+            <input type="time" class="form-control" placeholder="Event time" v-model="newEvent.time">
+            <textarea class="form-control form-control__textarea" placeholder="notes" v-model.trim="newEvent.notes"></textarea>
+            <ColorPicker format="hex" shape="circle" v-model:pureColor="newEvent.backgroundColor"/>
+            <div class="event-modal__footer">
+                <AppButton type="button" class="btn-danger" @click="closeModal">
+                    Cancel
                 </AppButton>
-                <input type="text" class="form-control" placeholder="event name" maxlength="30" v-model="newEvent.title">
-                <input type="date" class="form-control" placeholder="Event date" v-model="newEvent.date">
-                <input type="time" class="form-control" placeholder="Event time" v-model="newEvent.time">
-                <ColorPicker format="hex" shape="circle" v-model:pureColor="newEvent.backgroundColor"/>
-                <textarea class="form-control form-control__textarea" placeholder="notes" v-model="newEvent.notes"></textarea>
-                <div class="event-modal__footer">
-                    <AppButton type="button" class="btn-danger" @click="closeModal">
-                        Cancel
-                    </AppButton>
-                    <AppButton type="button" @click="saveEvent">
-                        Save
-                    </AppButton>
-                </div>
+                <AppButton type="button" @click="saveEvent">
+                    Save
+                </AppButton>
             </div>
         </div>
     </div>
@@ -41,12 +42,12 @@ import listPlugin from '@fullcalendar/list';
 import interactionPlugin from '@fullcalendar/interaction'
 import { INITIAL_EVENTS, createEventId } from '@/event-utils'
 import IconClose from '@/components/UI/icons/IconClose.vue'
+import IconTrash from '@/components/UI/icons/IconTrash.vue'
 
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 
-let showModal = ref(false);
-let modalPosition = ref({ top: 0, left: 0 });
-let isAnimating = false;
+let currentEvents = ref([])
+let currentDayInfo;
 let defaultEventColor = ref('#3B86FF')
 const newEvent = ref({
     id: createEventId(),
@@ -56,81 +57,102 @@ const newEvent = ref({
     notes: '',
     backgroundColor: defaultEventColor
 });
+let calendarApi = null;
 
-let currentEvents = ref([])
-let currentDayInfo = ref(null)
+let showModal = ref(false);
+let editMode = ref(false);
+let modalPosition = ref({ top: 0, left: 0 });
+let modalHeight;
+let modalWidth;
 
-const modalHeight = ref(null);
+const initEvents = (events) => {
+    currentEvents.value = events
+}
 
 const closeModal = () => {
     showModal.value = false;
 }
 
-const handledateClick = (dayInfo) => {
-    if (isAnimating) return;
+const resetNewEvent = () => {
+    editMode.value = false;
+    newEvent.value = {
+        id: createEventId(),
+        title: '',
+        date: '',
+        time: '',
+        notes: '',
+        backgroundColor: defaultEventColor
+    };
+}
 
-    isAnimating = true;
-
-    if (showModal.value) {
-        newEvent.value = {
-            id: createEventId(),
-            title: '',
-            date: '',
-            time: '',
-            notes: '',
-            backgroundColor: defaultEventColor
-        };
-        closeModal();
-        setTimeout(() => {
-            setCurrentDate(dayInfo);
-            openModalAtNewPosition(dayInfo);
-            isAnimating = false;
-        }, 100);
-    } else {
-        setCurrentDate(dayInfo);
-        openModalAtNewPosition(dayInfo);
-        isAnimating = false;
-    }
+const createEvent = (dayInfo) => {
+    currentDayInfo = dayInfo;
+    resetNewEvent();
+    setCurrentDate(dayInfo);
+    setModalPosition(dayInfo);
 }
 
 const setCurrentDate = (dayInfo) => {
-    currentDayInfo.value = dayInfo;
     // Set default values for newEvent based on clicked date
     const defaultDate = new Date(dayInfo.dateStr + 'T08:00:00');
     newEvent.value.date = defaultDate.toISOString().split('T')[0]; // YYYY-MM-DD
     newEvent.value.time = defaultDate.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
 }
 
-const openModalAtNewPosition = (dayInfo) => {
-    const rect = dayInfo.jsEvent.target.getBoundingClientRect();
-    const documentHeight = document.documentElement.offsetHeight;
-    const modalOffset = rect.height * 0.2;
-
-    if (!modalHeight.value) {
-        const modalElement = document.querySelector('.event-modal');
-        modalHeight.value = modalElement.offsetHeight;
-    }
-
-    if (rect.bottom + modalHeight.value > documentHeight) {
-        modalPosition.value = {
-            top: rect.top + window.scrollY - modalHeight.value + modalOffset,
-            left: rect.left + window.scrollX
-        };
-    } else {
-        modalPosition.value = {
-            top: rect.bottom + window.scrollY - modalOffset,
-            left: rect.left + window.scrollX
-        };
-    }
-
+const setModalPosition = (info, offset) => {
+    let modalOffset = offset;
     showModal.value = true;
+    const modalEl = document.querySelector('.event-modal');
+
+    nextTick(() => {
+        if (!modalHeight) {
+            modalHeight = modalEl.offsetHeight;
+            modalWidth = modalEl.offsetWidth;
+        }
+
+        const documentHeight = document.documentElement.offsetHeight;
+        const dayEl = info.jsEvent.target.getBoundingClientRect();
+        let scrollLeft = window.scrollX,
+            scrollTop = window.scrollY;
+
+        if (!modalOffset) {
+            modalOffset = -(dayEl.height * 0.2);
+        }
+        
+        let modalLeft = scrollLeft + dayEl.left + ((dayEl.width - modalWidth) / 2 ),
+            modalBot = scrollTop + dayEl.bottom + modalHeight + modalOffset
+
+        if (modalBot > documentHeight) {
+            modalPosition.value = {
+                top: scrollTop + dayEl.top - modalHeight - modalOffset,
+                left: modalLeft
+            };
+
+            if(!modalEl.classList.contains('modal-top')) {
+                modalEl.classList.add('modal-top')
+            }
+
+        } else {
+            modalPosition.value = {
+                top: scrollTop + dayEl.bottom + modalOffset,
+                left: modalLeft
+            };
+
+            if(modalEl.classList.contains('modal-top')) {
+                modalEl.classList.remove('modal-top')
+            }
+        }
+       
+    })
 }
 
 const saveEvent = () => {
     if (newEvent.value.title && newEvent.value.date && newEvent.value.time) {
-        const calendarApi = currentDayInfo.value.view.calendar;
-        const eventStart = new Date(`${newEvent.value.date}T${newEvent.value.time}`);
+        if (!calendarApi) {
+            calendarApi = currentDayInfo.view.calendar;
+        }  
         
+        const eventStart = new Date(`${newEvent.value.date}T${newEvent.value.time}`);
         const existingEvent = calendarApi.getEventById(newEvent.value.id);
         
         if (existingEvent) {
@@ -139,12 +161,12 @@ const saveEvent = () => {
             existingEvent.setProp('backgroundColor', newEvent.value.backgroundColor);
             existingEvent.setProp('borderColor', newEvent.value.backgroundColor);
             existingEvent.setExtendedProp('notes', newEvent.value.notes);
+            editMode.value = false;
         } else {
             calendarApi.addEvent({
                 id: newEvent.value.id,
                 title: newEvent.value.title,
                 start: eventStart,
-                allDay: true,
                 extendedProps: {
                     notes: newEvent.value.notes
                 },
@@ -153,43 +175,20 @@ const saveEvent = () => {
             });
         }
 
-        newEvent.value = {
-            id: createEventId(),
-            title: '',
-            date: '',
-            time: '',
-            notes: '',
-            backgroundColor: defaultEventColor
-        };
+        resetNewEvent();
         closeModal();
     } else {
         alert('Please fill in all fields.');
     }
 };
 
-const handleEventClick = (clickInfo) => {
-    const rect = clickInfo.jsEvent.target.getBoundingClientRect();
-    const documentHeight = document.documentElement.offsetHeight;
-    const modalOffset = 10;
-    const modalElement = document.querySelector('.event-modal');
-
-    if (!modalHeight.value) {
-        modalHeight.value = modalElement.offsetHeight;
+const editEvent = (clickInfo) => {
+    if (!calendarApi) {
+        calendarApi = clickInfo.view.calendar;
     }
 
-    if (rect.bottom + modalHeight.value + modalOffset > documentHeight) {
-        modalPosition.value = {
-            top: rect.top + window.scrollY - modalHeight.value - modalOffset,
-            left: rect.left + window.scrollX
-        };
-        modalElement.classList.add('modal-above');
-    } else {
-        modalPosition.value = {
-            top: rect.bottom + window.scrollY + modalOffset,
-            left: rect.left + window.scrollX
-        };
-        modalElement.classList.remove('modal-above');
-    }
+    let modalOffset = 10;
+    setModalPosition(clickInfo, modalOffset);
 
     newEvent.value = {
         id: clickInfo.event.id,
@@ -200,10 +199,14 @@ const handleEventClick = (clickInfo) => {
         backgroundColor: clickInfo.event.backgroundColor
     };
     showModal.value = true; 
+    editMode.value = true; 
 };
 
-const handleEvents = (events) => {
-    currentEvents = events
+const deleteEvent = () => {
+    calendarApi.getEventById(newEvent.value.id).remove();
+    resetNewEvent();
+    closeModal();
+    editMode.value = false;
 }
 
 const calendarOptions = {
@@ -213,6 +216,7 @@ const calendarOptions = {
         listPlugin,
         interactionPlugin // needed for dateClick
     ],
+    eventDisplay: "block", // needed for changing background color of timed events
     nowIndicator: true,
     buttonText: {
         today: 'Today',
@@ -236,11 +240,10 @@ const calendarOptions = {
     selectMirror: true,
     dayMaxEvents: true,
     weekends: true,
-    dateClick: handledateClick,
-    eventClick: handleEventClick,
-    eventsSet: handleEvents
+    eventsSet: initEvents,
+    eventClick: editEvent,
+    dateClick: createEvent,
 }
-
 </script>
 
 <style lang="scss">
@@ -276,12 +279,27 @@ const calendarOptions = {
     }
 }
 
+.modal-top {
+    &:before {
+        top: auto;
+        bottom: -9px;
+        transform: rotate(180deg);
+       
+    }
+}
+
 .btn-close {
     position: absolute;
     right: 4px;
     top: 4px;
     padding: 4px;
     line-height: 1;
+}
+
+.btn-delete {
+    position: absolute;
+    top: 4px;
+    right: 36px;
 }
 
 .event-modal__footer {
@@ -310,5 +328,4 @@ const calendarOptions = {
 .form-control__textarea {
     resize: none;
 }
-
 </style>
